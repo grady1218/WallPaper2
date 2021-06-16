@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using System.Drawing;
 using System.Windows.Media;
 using System.Collections.Generic;
+using System.IO;
 
 namespace WallPaper
 {
@@ -13,10 +14,8 @@ namespace WallPaper
 
         public static Font MyFont = new Font("メイリオ", 30);
 
-        Point ballPoint = new Point(100, 200);
-        Point Vector = new Point( 8, 15 );
-
-        Bitmap myWall;
+        Bitmap startImage;
+        Bitmap currentImage;
 
         NotifyIcon NotifyIcon;
 
@@ -40,6 +39,8 @@ namespace WallPaper
             StartPosition = FormStartPosition.CenterScreen;
             Location = Screen.AllScreens[0].Bounds.Location;
 
+            startImage = GetDefaultImage();
+
             keyboardHook.KeyDownEvent += (object sender, KeyEventArg e) =>
             {
                 drawStrings.Add(new DrawString(new KeysConverter().ConvertToString(e.KeyCode), Screen.AllScreens[0].Bounds.Width));
@@ -50,10 +51,8 @@ namespace WallPaper
             AddTask();
 
             Screen.GetBounds(this);
-            //BackgroundImage = new Bitmap(new Bitmap(@"./annna.jpg"), new Size(Bounds.Width, Bounds.Height));
 
-            MediaPlayer player = new MediaPlayer();
-            Timer timer = new Timer()
+            Timer timer = new Timer
             {
                 Interval = 1000 / 75,
                 Enabled = true
@@ -64,43 +63,45 @@ namespace WallPaper
             {
                 if (isEnd)
                 {
+                    SetDefaultImageWallPaper();
                     Close();
                     Environment.Exit(0);
                     return;
                 }
-                e.Graphics.DrawImage(myWall,0,-100);
+                e.Graphics.DrawImage( currentImage, 0, 0 );
                 for(int i = 0; i < drawStrings.Count; i++) drawStrings[i].Draw(e);
             };
 
-            var a = new Bitmap("./kawaii.png");
-            myWall = new Bitmap(a, new Size(1920, (int)(a.Height * (1920f / a.Width))));
+            Bitmap image;
+            if (File.Exists("./background.png")) image = new Bitmap("./background.png");
+            else image = startImage;
+            
+
+            currentImage = new Bitmap(image, new Size(1920, (int)(image.Height * (1920f / image.Width) ) ) );
 
         }
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            SetKawaii();
+            SetDefaultImageWallPaper();
             keyboardHook.UnHook();
         }
 
 
-        private IntPtr[] getWindow()
+        private IntPtr getWindow()
         {
             DLL.SendMessageTimeout(DLL.FindWindow("Progman", null), 0x052C, new IntPtr(0), IntPtr.Zero, 0x0, 1000, out var result);
 
-            var hoge = new IntPtr[2];
+            var hoge = new IntPtr();
             DLL.EnumWindows((h, l) =>
             {
                 var shell = DLL.FindWindowEx( h, IntPtr.Zero, "SHELLDLL_DefView", null );
                 if(shell != IntPtr.Zero)
                 {
-                    hoge[0] = DLL.FindWindowEx( IntPtr.Zero, h, "WorkerW", null );
-                }
-                var c = DLL.FindWindowEx( h, IntPtr.Zero, "Chrome_WidgetWin_1", null);
-                if (c != IntPtr.Zero)
-                {
-                    hoge[1] = c;
+                    hoge = DLL.FindWindowEx( IntPtr.Zero, h, "WorkerW", null );
+                    return false;
                 }
                 return true;
+
             },IntPtr.Zero);
             return hoge;
         }
@@ -119,13 +120,18 @@ namespace WallPaper
                 }
             }
 
-            var window = getWindow();
-            var hdc = DLL.GetDCEx(window[0], IntPtr.Zero, 0x403);
-            var formDC = DLL.GetDCEx(Handle, IntPtr.Zero, 0x403);
-            DLL.BitBlt( hdc, Math.Abs(Screen.AllScreens[1].Bounds.X), Math.Abs(Screen.AllScreens[1].Bounds.Y), 3000, 1280, formDC, 0, 0, DLL.TernaryRasterOperations.SRCCOPY );
-            DLL.ReleaseDC( window[0], hdc );
-            DLL.ReleaseDC( Handle, formDC );
+            DrawWallPaper();
             Invalidate();
+        }
+
+        private void DrawWallPaper()
+        {
+            var window = getWindow();
+            var hdc = DLL.GetDCEx(window, IntPtr.Zero, 0x403);
+            var formDC = DLL.GetDCEx(Handle, IntPtr.Zero, 0x403);
+            DLL.BitBlt(hdc, Math.Abs(Screen.AllScreens[0].Bounds.X), Math.Abs(Screen.AllScreens[0].Bounds.Y), Screen.AllScreens[0].Bounds.Width, Screen.AllScreens[0].Bounds.Height, formDC, 0, 0, DLL.TernaryRasterOperations.SRCCOPY);
+            DLL.ReleaseDC(window, hdc);
+            DLL.ReleaseDC(Handle, formDC);
         }
 
         private void AddTask()
@@ -150,10 +156,11 @@ namespace WallPaper
             stop.Click += (object sender, EventArgs e) =>
             {
                 isStop = !isStop;
-                if (isStop) SetKawaii();
+                if (isStop) SetDefaultImageWallPaper();
                 stop.Text = isStop ? "&再開" : "&一時停止";
             };
             exit.Click += (object sender, EventArgs e) => {
+                SetDefaultImageWallPaper();
                 if (isStop) Environment.Exit(0);
                 isEnd = true;
             };
@@ -164,13 +171,36 @@ namespace WallPaper
 
         }
 
-        private void SetKawaii()
+        private Bitmap GetDefaultImage()
         {
             var window = getWindow();
-            var hdc = DLL.GetDCEx(window[0], IntPtr.Zero, 0x403);
+            var whdc = DLL.GetDCEx(window, IntPtr.Zero, 0x403);
+
+            Bitmap bitmap = new Bitmap(Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height);
+            Graphics g = Graphics.FromImage( bitmap );
+            IntPtr ihdc = g.GetHdc();
+
+            DLL.BitBlt( ihdc, 0, 0, bitmap.Width, bitmap.Height, whdc, 0, 0, DLL.TernaryRasterOperations.SRCCOPY );
+
+            g.ReleaseHdc( ihdc );
+            g.Dispose();
+            DLL.ReleaseDC( window, whdc );
+
+            bitmap.Save( "./image.png" );
+
+            return bitmap;
+
+        }
+
+        private void SetDefaultImageWallPaper()
+        {
+            var window = getWindow();
+            var hdc = DLL.GetDCEx(window, IntPtr.Zero, 0x403);
             var hsrc = DLL.CreateCompatibleDC(hdc);
-            var porg = DLL.SelectObject(hsrc,myWall.GetHbitmap());
-            DLL.BitBlt(hdc, Math.Abs(Screen.AllScreens[1].Bounds.X), Math.Abs(Screen.AllScreens[1].Bounds.Y) - 100, 3000, 1280, hsrc, 0, 0, DLL.TernaryRasterOperations.SRCCOPY);
+            var porg = DLL.SelectObject(hsrc, startImage.GetHbitmap());
+            DLL.BitBlt(hdc, 0, 0, Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height, hsrc, 0, 0, DLL.TernaryRasterOperations.SRCCOPY);
+
+            DLL.ReleaseDC( window, hdc );
         }
 
     }
