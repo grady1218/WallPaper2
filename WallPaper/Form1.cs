@@ -186,8 +186,6 @@ namespace WallPaper
             g.Dispose();
             DLL.ReleaseDC( window, whdc );
 
-            bitmap.Save( "./image.png" );
-
             return bitmap;
 
         }
